@@ -1,0 +1,927 @@
+openapi: 3.1.0
+info:
+  # Do not change the title, if the title changes, the import paths will be broken
+  title: Api
+  version: 0.1.0
+  description: RFID Vehicle Gate Access Control API
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: Auth
+    description: Browser and mobile authentication endpoints.
+  - name: esp-devices
+    description: ESP gate controller management
+  - name: vehicles
+    description: Registered vehicles
+  - name: rfid-cards
+    description: RFID card assignment
+  - name: access-logs
+    description: Gate entry/exit event logs
+  - name: analytics
+    description: Dashboard analytics and summaries
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      description: Returns server health status
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+
+  /auth/user:
+    get:
+      tags: [Auth]
+      operationId: getCurrentAuthUser
+      summary: Get the currently authenticated user
+      parameters:
+        - $ref: '#/components/parameters/AuthorizationSessionHeader'
+        - $ref: '#/components/parameters/SessionCookie'
+      responses:
+        '200':
+          description: Auth status resolved successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthUserEnvelope'
+  /login:
+    get:
+      tags: [Auth]
+      operationId: beginBrowserLogin
+      summary: Start the browser OIDC login flow
+      parameters:
+        - name: returnTo
+          in: query
+          required: false
+          description: Relative path to redirect to after login (must start with `/`). Defaults to `/`.
+          schema:
+            type: string
+      responses:
+        '302':
+          description: Redirect to the OIDC authorization endpoint.
+  /callback:
+    get:
+      tags: [Auth]
+      operationId: handleBrowserLoginCallback
+      summary: Complete the browser OIDC login flow
+      parameters:
+        - name: code
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: iss
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uri
+      responses:
+        '302':
+          description: Redirect to the `returnTo` path on success (defaults to `/`) or `/api/login` on failure.
+  /logout:
+    get:
+      tags: [Auth]
+      operationId: logoutBrowserSession
+      summary: Clear the session and begin OIDC logout
+      parameters:
+        - $ref: '#/components/parameters/AuthorizationSessionHeader'
+        - $ref: '#/components/parameters/SessionCookie'
+      responses:
+        '302':
+          description: Redirect to the OIDC provider logout URL.
+  /mobile-auth/token-exchange:
+    post:
+      tags: [Auth]
+      operationId: exchangeMobileAuthorizationCode
+      summary: Exchange a mobile OIDC code for a session token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MobileTokenExchangeRequest'
+      responses:
+        '200':
+          description: Session created successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MobileTokenExchangeSuccess'
+        '400':
+          description: Missing or invalid required fields.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          description: Token did not contain usable claims.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '500':
+          description: Token exchange failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /mobile-auth/logout:
+    post:
+      tags: [Auth]
+      operationId: logoutMobileSession
+      summary: Delete a mobile session token
+      parameters:
+        - $ref: '#/components/parameters/AuthorizationSessionHeader'
+      responses:
+        '200':
+          description: Logout processed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogoutSuccess'
+
+  /esp-devices:
+    get:
+      operationId: listEspDevices
+      tags: [esp-devices]
+      summary: List all registered ESP gate controllers
+      responses:
+        "200":
+          description: List of ESP devices
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/EspDevice"
+    post:
+      operationId: createEspDevice
+      tags: [esp-devices]
+      summary: Register a new ESP gate controller
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EspDeviceInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EspDevice"
+  /esp-devices/{id}:
+    get:
+      operationId: getEspDevice
+      tags: [esp-devices]
+      summary: Get a single ESP device
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "200":
+          description: The ESP device
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EspDevice"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    patch:
+      operationId: updateEspDevice
+      tags: [esp-devices]
+      summary: Update an ESP device
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EspDeviceUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EspDevice"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    delete:
+      operationId: deleteEspDevice
+      tags: [esp-devices]
+      summary: Remove an ESP device
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /esp-devices/{id}/heartbeat:
+    post:
+      operationId: sendEspHeartbeat
+      tags: [esp-devices]
+      summary: ESP device heartbeat/status ping (called by firmware)
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EspHeartbeatInput"
+      responses:
+        "200":
+          description: Heartbeat recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EspDevice"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /vehicles:
+    get:
+      operationId: listVehicles
+      tags: [vehicles]
+      summary: List registered vehicles
+      parameters:
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of vehicles
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Vehicle"
+    post:
+      operationId: createVehicle
+      tags: [vehicles]
+      summary: Register a new vehicle
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VehicleInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Vehicle"
+  /vehicles/{id}:
+    get:
+      operationId: getVehicle
+      tags: [vehicles]
+      summary: Get a single vehicle
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "200":
+          description: The vehicle
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Vehicle"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    patch:
+      operationId: updateVehicle
+      tags: [vehicles]
+      summary: Update a vehicle
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VehicleUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Vehicle"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    delete:
+      operationId: deleteVehicle
+      tags: [vehicles]
+      summary: Remove a vehicle
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /rfid-cards:
+    get:
+      operationId: listRfidCards
+      tags: [rfid-cards]
+      summary: List RFID cards
+      responses:
+        "200":
+          description: List of RFID cards
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RfidCard"
+    post:
+      operationId: createRfidCard
+      tags: [rfid-cards]
+      summary: Assign a new RFID card
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RfidCardInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RfidCard"
+  /rfid-cards/{id}:
+    patch:
+      operationId: updateRfidCard
+      tags: [rfid-cards]
+      summary: Update an RFID card assignment
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RfidCardUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RfidCard"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    delete:
+      operationId: deleteRfidCard
+      tags: [rfid-cards]
+      summary: Remove an RFID card
+      parameters:
+        - $ref: "#/components/parameters/IdParam"
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /access-logs:
+    get:
+      operationId: listAccessLogs
+      tags: [access-logs]
+      summary: List access log entries with filters
+      parameters:
+        - name: startDate
+          in: query
+          required: false
+          description: ISO date (YYYY-MM-DD), inclusive
+          schema:
+            type: string
+        - name: endDate
+          in: query
+          required: false
+          description: ISO date (YYYY-MM-DD), inclusive
+          schema:
+            type: string
+        - name: vehicleId
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: direction
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [IN, OUT]
+        - name: authorized
+          in: query
+          required: false
+          schema:
+            type: boolean
+        - name: search
+          in: query
+          required: false
+          description: Search by plate number, owner name, or card UID
+          schema:
+            type: string
+        - name: sortBy
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [timestamp, plateNumber, direction]
+            default: timestamp
+        - name: sortOrder
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: desc
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 1
+        - name: pageSize
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 25
+      responses:
+        "200":
+          description: Paginated access log results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccessLogPage"
+    post:
+      operationId: createAccessLog
+      tags: [access-logs]
+      summary: Record a gate access event (called by ESP firmware)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AccessLogInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccessLog"
+
+  /analytics/summary:
+    get:
+      operationId: getAnalyticsSummary
+      tags: [analytics]
+      summary: Get dashboard summary counters
+      responses:
+        "200":
+          description: Summary stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnalyticsSummary"
+  /analytics/daily:
+    get:
+      operationId: getDailyAnalytics
+      tags: [analytics]
+      summary: Get entries/exits per day for the last N days
+      parameters:
+        - name: days
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 14
+      responses:
+        "200":
+          description: Daily breakdown
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DailyAnalytics"
+  /analytics/vehicle-usage:
+    get:
+      operationId: getVehicleUsageAnalytics
+      tags: [analytics]
+      summary: Get top vehicles by access frequency
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 5
+      responses:
+        "200":
+          description: Vehicle usage breakdown
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/VehicleUsage"
+
+components:
+  parameters:
+    IdParam:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+    AuthorizationSessionHeader:
+      name: Authorization
+      in: header
+      required: false
+      description: Opaque session token — `Bearer <sid>`.
+      schema:
+        type: string
+    SessionCookie:
+      name: sid
+      in: cookie
+      required: false
+      description: Browser session cookie.
+      schema:
+        type: string
+
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+
+    AuthUser:
+      type: object
+      required: [id, email, firstName, lastName, profileImageUrl]
+      properties:
+        id:
+          type: string
+        email:
+          type: [string, 'null']
+          format: email
+        firstName:
+          type: [string, 'null']
+        lastName:
+          type: [string, 'null']
+        profileImageUrl:
+          type: [string, 'null']
+    AuthUserEnvelope:
+      type: object
+      required: [user]
+      properties:
+        user:
+          oneOf:
+            - $ref: '#/components/schemas/AuthUser'
+            - type: 'null'
+    MobileTokenExchangeRequest:
+      type: object
+      required: [code, code_verifier, redirect_uri, state]
+      properties:
+        code:
+          type: string
+          minLength: 1
+        code_verifier:
+          type: string
+          minLength: 1
+        redirect_uri:
+          type: string
+          minLength: 1
+          format: uri
+        state:
+          type: string
+          minLength: 1
+        nonce:
+          type: string
+          minLength: 1
+    MobileTokenExchangeSuccess:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+    LogoutSuccess:
+      type: object
+      required: [success]
+      properties:
+        success:
+          type: boolean
+          const: true
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+
+    EspDevice:
+      type: object
+      required: [id, name, location, ipAddress, status, lastSeenAt, createdAt]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        location:
+          type: string
+          description: Gate label, e.g. "Main Gate IN"
+        ipAddress:
+          type: [string, 'null']
+        status:
+          type: string
+          enum: [online, offline]
+        lastSeenAt:
+          type: [string, 'null']
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+    EspDeviceInput:
+      type: object
+      required: [name, location]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        location:
+          type: string
+          minLength: 1
+        ipAddress:
+          type: string
+    EspDeviceUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+        location:
+          type: string
+          minLength: 1
+        ipAddress:
+          type: string
+        status:
+          type: string
+          enum: [online, offline]
+    EspHeartbeatInput:
+      type: object
+      properties:
+        ipAddress:
+          type: string
+
+    Vehicle:
+      type: object
+      required: [id, plateNumber, ownerName, vehicleType, status, createdAt]
+      properties:
+        id:
+          type: integer
+        plateNumber:
+          type: string
+        ownerName:
+          type: string
+        vehicleType:
+          type: string
+          enum: [car, bike, truck, bus, other]
+        status:
+          type: string
+          enum: [active, inactive]
+        createdAt:
+          type: string
+          format: date-time
+    VehicleInput:
+      type: object
+      required: [plateNumber, ownerName, vehicleType]
+      properties:
+        plateNumber:
+          type: string
+          minLength: 1
+        ownerName:
+          type: string
+          minLength: 1
+        vehicleType:
+          type: string
+          enum: [car, bike, truck, bus, other]
+        status:
+          type: string
+          enum: [active, inactive]
+    VehicleUpdate:
+      type: object
+      properties:
+        plateNumber:
+          type: string
+          minLength: 1
+        ownerName:
+          type: string
+          minLength: 1
+        vehicleType:
+          type: string
+          enum: [car, bike, truck, bus, other]
+        status:
+          type: string
+          enum: [active, inactive]
+
+    RfidCard:
+      type: object
+      required: [id, cardUid, vehicleId, active, issuedAt]
+      properties:
+        id:
+          type: integer
+        cardUid:
+          type: string
+        vehicleId:
+          type: [integer, 'null']
+        active:
+          type: boolean
+        issuedAt:
+          type: string
+          format: date-time
+    RfidCardInput:
+      type: object
+      required: [cardUid]
+      properties:
+        cardUid:
+          type: string
+          minLength: 1
+        vehicleId:
+          type: [integer, 'null']
+        active:
+          type: boolean
+    RfidCardUpdate:
+      type: object
+      properties:
+        cardUid:
+          type: string
+          minLength: 1
+        vehicleId:
+          type: [integer, 'null']
+        active:
+          type: boolean
+
+    AccessLog:
+      type: object
+      required: [id, cardUid, vehicleId, plateNumber, ownerName, direction, authorized, deviceId, deviceName, timestamp]
+      properties:
+        id:
+          type: integer
+        cardUid:
+          type: string
+        vehicleId:
+          type: [integer, 'null']
+        plateNumber:
+          type: [string, 'null']
+        ownerName:
+          type: [string, 'null']
+        direction:
+          type: string
+          enum: [IN, OUT]
+        authorized:
+          type: boolean
+        deviceId:
+          type: [integer, 'null']
+        deviceName:
+          type: [string, 'null']
+        timestamp:
+          type: string
+          format: date-time
+    AccessLogInput:
+      type: object
+      required: [cardUid, direction]
+      properties:
+        cardUid:
+          type: string
+          minLength: 1
+        direction:
+          type: string
+          enum: [IN, OUT]
+        deviceId:
+          type: [integer, 'null']
+    AccessLogPage:
+      type: object
+      required: [items, total, page, pageSize]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AccessLog"
+        total:
+          type: integer
+        page:
+          type: integer
+        pageSize:
+          type: integer
+
+    AnalyticsSummary:
+      type: object
+      required: [totalVehicles, activeVehicles, totalCards, onlineDevices, totalDevices, entriesToday, exitsToday, unauthorizedToday, vehiclesInside]
+      properties:
+        totalVehicles:
+          type: integer
+        activeVehicles:
+          type: integer
+        totalCards:
+          type: integer
+        onlineDevices:
+          type: integer
+        totalDevices:
+          type: integer
+        entriesToday:
+          type: integer
+        exitsToday:
+          type: integer
+        unauthorizedToday:
+          type: integer
+        vehiclesInside:
+          type: integer
+    DailyAnalytics:
+      type: object
+      required: [date, entries, exits, unauthorized]
+      properties:
+        date:
+          type: string
+        entries:
+          type: integer
+        exits:
+          type: integer
+        unauthorized:
+          type: integer
+    VehicleUsage:
+      type: object
+      required: [vehicleId, plateNumber, ownerName, accessCount]
+      properties:
+        vehicleId:
+          type: integer
+        plateNumber:
+          type: string
+        ownerName:
+          type: string
+        accessCount:
+          type: integer
